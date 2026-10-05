@@ -166,7 +166,8 @@ fn generate_zsh(cmd: &CommandDef) -> Vec<u8> {
   // Main function
   out.push_str(&format!("_{name}() {{\n"));
   out.push_str("    local line state\n\n");
-  out.push_str("    _arguments -C \\\n");
+  // `-A "-*"` stops the root from parsing flags that follow the subcommand.
+  out.push_str("    _arguments -C -A \"-*\" \\\n");
 
   // Global flags
   for arg in cmd.all_args().filter(|a| !a.hidden && !a.positional) {
@@ -179,6 +180,32 @@ fn generate_zsh(cmd: &CommandDef) -> Vec<u8> {
       } else {
         out.push_str(&format!("        '--{long}{desc}' \\\n"));
       }
+    }
+  }
+
+  // Flags of the default subcommand (`deno -A main.ts` is `deno run`). Each
+  // one rules out the subcommand slot, so the words after it complete as
+  // files. Hidden flags (`-A`) get a `!` prefix: recognized, never offered.
+  let default_sub = cmd
+    .default_subcommand
+    .and_then(|d| cmd.subcommands.iter().find(|s| s.name == d));
+  for arg in default_sub
+    .into_iter()
+    .flat_map(|sub| sub.all_args())
+    .filter(|a| !a.positional)
+  {
+    let Some(long) = arg.long else { continue };
+    if cmd.find_arg_long(long).is_some() {
+      continue;
+    }
+    let hide = if arg.hidden { "!" } else { "" };
+    let desc = zsh_description(arg.help);
+    if let Some(short) = arg.short {
+      out.push_str(&format!(
+        "        '{hide}(1 -{short} --{long})'{{-{short},--{long}}}'{desc}' \\\n"
+      ));
+    } else {
+      out.push_str(&format!("        '{hide}(1)--{long}{desc}' \\\n"));
     }
   }
 
@@ -207,6 +234,9 @@ fn generate_zsh(cmd: &CommandDef) -> Vec<u8> {
     out.push_str("                '*:file:_files'\n            ;;\n");
   }
 
+  if default_sub.is_some() {
+    out.push_str("        *)\n            _files\n            ;;\n");
+  }
   out.push_str("        esac\n    ;;\n    esac\n}\n\n");
   out.push_str(&format!("_{name} \"$@\"\n"));
 
