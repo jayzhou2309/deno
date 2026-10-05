@@ -791,6 +791,28 @@ mod tests {
   }
 
   #[test]
+  fn generate_zsh_root_accepts_run_flags() {
+    // Regression test for #36959: `deno -A <TAB>` completed nothing because
+    // the root spec didn't know `-A`, so zsh took it for the subcommand.
+    let s =
+      String::from_utf8(generate("zsh", &crate::defs::DENO_ROOT)).unwrap();
+    assert!(s.contains("    _arguments -C -A \"-*\" \\\n"), "{s}");
+    assert!(
+      s.contains(
+        "        '!(1 -A --allow-all)'{-A,--allow-all}'[Allow all permissions]' \\\n"
+      ),
+      "{s}"
+    );
+    assert!(s.contains("        '(1)--watch["), "{s}");
+    assert!(
+      s.contains(
+        "        *)\n            _files\n            ;;\n        esac"
+      ),
+      "{s}"
+    );
+  }
+
+  #[test]
   fn zsh_description_escapes_and_truncates() {
     assert_eq!(zsh_description(""), "");
     assert_eq!(zsh_description("Print version"), "[Print version]");
