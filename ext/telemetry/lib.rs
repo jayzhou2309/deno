@@ -1628,31 +1628,15 @@ fn parse_span_id(
 macro_rules! attr_raw {
   ($scope:ident, $name:expr, $value:expr) => {{
     let name = if let Ok(name) = $name.try_cast() {
-      let view = v8::ValueView::new($scope, name);
-      match view.data() {
-        v8::ValueViewData::OneByte(bytes) => {
-          Some(String::from_utf8_lossy(bytes).into_owned())
-        }
-        v8::ValueViewData::TwoByte(bytes) => {
-          Some(String::from_utf16_lossy(bytes))
-        }
-      }
+      Some(owned_string($scope, name))
     } else {
       None
     };
     let value = 'value: {
       if let Ok(string) = $value.try_cast::<v8::String>() {
-        break 'value Some(Value::String(StringValue::from({
-          let x = v8::ValueView::new($scope, string);
-          match x.data() {
-            v8::ValueViewData::OneByte(bytes) => {
-              String::from_utf8_lossy(bytes).into_owned()
-            }
-            v8::ValueViewData::TwoByte(bytes) => {
-              String::from_utf16_lossy(bytes)
-            }
-          }
-        })));
+        break 'value Some(Value::String(StringValue::from(owned_string(
+          $scope, string,
+        ))));
       }
       if let Ok(number) = $value.try_cast::<v8::Number>() {
         break 'value Some(Value::F64(number.value()));
@@ -1679,15 +1663,7 @@ macro_rules! attr_raw {
               return;
             };
             if let Ok(s) = element.try_cast::<v8::String>() {
-              let view = v8::ValueView::new($scope, s);
-              vec.push(StringValue::from(match view.data() {
-                v8::ValueViewData::OneByte(bytes) => {
-                  String::from_utf8_lossy(bytes).into_owned()
-                }
-                v8::ValueViewData::TwoByte(bytes) => {
-                  String::from_utf16_lossy(bytes)
-                }
-              }));
+              vec.push(StringValue::from(owned_string($scope, s)));
             }
           }
           break 'value Some(Value::Array(Array::String(vec)));
@@ -1954,14 +1930,15 @@ pub fn report_event(name: &'static str, data: impl std::fmt::Display) {
   log_processor.emit(&mut log_record, builtin_instrumentation_scope);
 }
 
-fn owned_string<'s>(
-  scope: &mut v8::PinScope<'s, '_>,
-  string: v8::Local<'s, v8::String>,
+fn owned_string(
+  scope: &mut v8::PinScope<'_, '_>,
+  string: v8::Local<'_, v8::String>,
 ) -> String {
   let x = v8::ValueView::new(scope, string);
   match x.data() {
+    // One-byte strings are Latin-1, not UTF-8.
     v8::ValueViewData::OneByte(bytes) => {
-      String::from_utf8_lossy(bytes).into_owned()
+      bytes.iter().map(|&b| char::from(b)).collect()
     }
     v8::ValueViewData::TwoByte(bytes) => String::from_utf16_lossy(bytes),
   }
